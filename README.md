@@ -1,2 +1,2 @@
-# mle-analiz-loyalnosti-polzovatelej
+# analiz-loyalnosti-polzovatelej
 Шаблон репозитория для итогового проекта модуля 2 спринта 7 курса Инженер Машинного Обучения Яндекс Практикума
