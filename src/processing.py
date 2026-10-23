@@ -41,11 +41,11 @@ class DataProcessor:
         return self
 
     # Предобработка
-    def preprocess(self, col_negative: str, col_percentile: str, percentile: float) -> "DataProcessor":
+    def clean_and_filter_data(self, col_negative: str, col_percentile: str, percentile: float) -> "DataProcessor":
         print(f"\n--- Обработка данных ---")
-        self.clean_negative_revenue(col_negative)
-        self.drop_duble_orders()
-        self.filter_outliers_by_percentile(col_percentile, percentile)
+        self.remove_negative_revenue(col_negative)
+        self.remove_duplicate_orders()
+        self.filter_by_percentile(col_percentile, percentile)
         return self
 
     # Загрузка датафрейма с данными из базы или файла. Обработка типов данных
@@ -137,7 +137,7 @@ class DataProcessor:
         return self
 
     # Предобработка данных. Обработка дубликатов в столбце order_id    
-    def drop_duble_orders(self) -> "DataProcessor":
+    def remove_duplicate_orders(self) -> "DataProcessor":
         df_drop = self.df
 
         # Выберем колонки по которым будем сравнивать заказы
@@ -154,7 +154,7 @@ class DataProcessor:
         return self
 
     # Предобработка данных. Удаление отрицательной выручки
-    def clean_negative_revenue(self, col: str) -> "DataProcessor":
+    def remove_negative_revenue(self, col: str) -> "DataProcessor":
         df= self.df
 
         # Найдем количество записей с revenue_rub меньше нуля
@@ -173,7 +173,7 @@ class DataProcessor:
         return self
     
     # Предобработка данных. Фильтр в указанной колонке по 99 перцентилю
-    def filter_outliers_by_percentile(self, col: str, upper_percentile: float = 99.0) -> "DataProcessor":
+    def filter_by_percentile(self, col: str, upper_percentile: float = 99.0) -> "DataProcessor":
         df = self.df
         
         # Найдем 99 перцентиль
@@ -186,8 +186,22 @@ class DataProcessor:
         self.df = df_99
         return self
 
+    # Предобработка данных. Проверка значений категориальных столбцов на дубликаты
+    def check_categorical_consistency(self, cols: list) -> "DataProcessor":
+        df = self.df
+        for col in cols:
+            # Выводим уникальные значения в столбце 
+            count_items = df[col].nunique()   
+            # Приводим к нижнему регистру и считаем количество уникальных значений
+            count_lower_case = df[col].str.lower().nunique()
+            if count_items != count_lower_case:
+                print(f"Дубликаты в столбце {col}")
+        print(f"Дубликатов в категориальных столбцах нет") 
+        self.df = df
+        return self
+
     # Создание профиля пользователя
-    def create_profile(self) -> "DataProcessor":
+    def create_user_profile(self) -> "DataProcessor":
         print(f"\n--- Создание профиля пользователя ---")
 
         df = self.df
@@ -213,46 +227,54 @@ class DataProcessor:
         profile['mean_time_between_orders'] = profile['mean_time_between_orders'].round(2)
         profile['sum_revenue_per_user'] = profile['sum_revenue_per_user'].round(2)
         self.df = profile
-        print(f"Всего записей в профиле: {self.df.shape[0]}")
         return self
 
     # Общее число пользователей в выборке
-    def count_uniq_users(self) -> int:
+    def count_unique_users(self) -> int:
         df = self.df
         uniq_users_count = df['user_id'].nunique() 
         return uniq_users_count
     
     # Средняя выручка с одного заказа (общее по всем заказам)
-    def mean_order_revenue(self) -> float:
+    def calculate_avg_order_value(self) -> float:
         df = self.df
         mean_revenue = df['sum_revenue_per_user'].sum() / df['count_orders_per_user'].sum()
         return mean_revenue
     
     # Доля пользователей по всему датафрейму, сделавших заказ повторно
-    def mean_ratio_is_two(self) -> float:
+    def compute_repeat_purchase_rate(self) -> float:
         df = self.df
         # Доля пользователей, сделавших заказ повторно
         mean_ratio = round(df['is_two'].mean(), 4)
         return mean_ratio
 
-    def profile_statistic(self) -> "DataProcessor":
+    # Общее количество заказов в датафрейме
+    def count_total_orders(self) -> int:
+        df = self.df
+        count_orders = df['count_orders_per_user'].sum()
+        return count_orders
 
-        mean_ratio = self.mean_ratio_is_two()
+    def report_profile_metrics(self) -> "DataProcessor":
+
+        count_orders = self.count_total_orders()
+        print(f"Общее количество заказов в датафрейме: {count_orders}")
+
+        mean_ratio = self.compute_repeat_purchase_rate()
         print(f"Доля пользователей, сделавших заказ повторно: {mean_ratio}")
 
-        uniq_users_count = self.count_uniq_users()
+        uniq_users_count = self.count_unique_users()
         print(f"Число уникальных пользователей в выборке: {uniq_users_count}")
 
-        mean_revenue = self.mean_order_revenue()
+        mean_revenue = self.calculate_avg_order_value()
         print(f"Средняя выручка с одного заказа (общее по всем заказам): {mean_revenue.round(2)} руб.")
 
         return self
 
     # Расчет количества и доли пользователей, совершивших заказ повторно
-    def retention(self, cols: list) -> "DataProcessor":
+    def analyze_retention_by_segments(self, cols: list) -> "DataProcessor":
         
         df = self.df
-        mean_ratio = self.mean_ratio_is_two()
+        mean_ratio = self.compute_repeat_purchase_rate()
         for col in cols:
             print(f"\n--- Расчет количества и доли пользователей по {col}, совершивших заказ повторно ---")
             count_series = df[col].value_counts() 
@@ -274,46 +296,81 @@ class DataProcessor:
 
             for i in range(len(count_series)):
                 print(f"На {i+1} месте: {count_series.index[i]} - {count_series.iloc[i]} с долей {ratio_series.iloc[i]}")
-                if i == 2:
+                if i == 9:
                     break
 
             print(f"\nДоля повторных заказов выше среднего для: ")
             for i in range(len(stats)): 
                 if stats['share_two'][i] > mean_ratio:
                     print(f"  - {stats[col][i]} - {stats['share_two'][i]}")
-                if i == 2:
+                if i == 6:
                     break
         self.df = df        
         return self
 
-     #  Анализ влияния дня недели, в который была совершена первая покупка, на поведение пользователей
-    def day_of_week_retention(self) -> "DataProcessor":
+    # Гипотеза 1
+    def test_hypothesis_event_repeat_rate(self, col: str,  more_ratio: str, min_ratio: str) -> "DataProcessor":
+        print(f"\n--- Гипотеза 1 --- ")
+        print(f"Пользователи, которые совершили первый заказ на спортивные мероприятия, совершают повторный заказ чаще, чем пользователи, оформившие свой первый заказ на концерты.")
+        df = self.df
+        # Проводим подсчет общего количества пользователей в разрезе мероприятий и доли пользователей, совершивших заказ повторно
+        stats = df.groupby(col).agg(
+            share_two=('is_two', 'mean'),      # доля пользователей с 2+ заказами
+            total_users=('user_id', 'count')       # общее количество пользователей
+        ).reset_index().sort_values(by='total_users', ascending = False)
 
-        profile = self.df.copy()
-        # Добавляем колонку с днем недели first_order_date
-        profile['first_order_dow'] = profile['first_order_date'].dt.day_name()
+        share_more = round(stats.loc[stats[col] == more_ratio, 'share_two'].values[0], 4)
+        share_min = round(stats.loc[df[col] == min_ratio, 'share_two'].values[0], 4)
+        if share_more > share_min:
+            print(f"Гипотеза 1 верна: доля {more_ratio} ({share_more}) выше доли {min_ratio} ({share_min})")
+        else: 
+            print(f"Гипотеза 1 неверна: доля {min_ratio} ({share_min}) выше доли {more_ratio} ({share_more})")
 
-        # Создаем датафрейм с уникальными пользователями
-        first_orders = (profile.sort_values('first_order_date').drop_duplicates(subset=['user_id'], keep='first'))
+        self.df = df        
+        return self
 
-        # Группируем по дню недели и считаем метрики
-        result = (first_orders.groupby('first_order_dow').agg(
-                total_users=('user_id', 'count'), # считаем количество пользователей, которые сделали заказ в этот день недели
-                users_with_repeat=('is_two', lambda x: (x == True).sum())  # считаем тех, у кого были повторные заказы
-            ).reset_index())
-        # Считаем долю вернувшихся пользователей
-        result['share_repeat'] = result['users_with_repeat'] / result['total_users']
+    # Гипотеза 2
+    def test_hypothesis_region_activity_vs_retention(self, col: str) -> "DataProcessor":
+        print(f"\n--- Гипотеза 2 --- ")
+        print(f"В регионах, где больше всего пользователей посещают мероприятия, выше доля повторных заказов, чем в менее активных регионах.")
+        df = self.df
 
-        # Сортируем по дням недели (Пн–Вс)
-        dow_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        result['dow_sort_key'] = result['first_order_dow'].map({d: i for i, d in enumerate(dow_order)})
-        result = result.sort_values('dow_sort_key').drop(columns=['dow_sort_key'])
-        print(f"\nВлияние дня недели, в который была совершена первая покупка, на поведение пользователей")
-        print(result)
+        # Расчет количества и доли пользователей, совершивших заказ повторно
+        stats = df.groupby(col).agg(
+            share_two=('is_two', 'mean'),      # доля пользователей с 2+ заказами
+            total_users=('user_id', 'count')       # общее количество пользователей
+        ).reset_index().sort_values(by='total_users', ascending = False).head(10)
+         
+        # Топ‑3 по количеству пользователей
+        top_by_users = stats.sort_values(by='total_users', ascending=False).head(3)
+        print("Топ‑3 регионов по количеству пользователей:")
+        print(top_by_users[[col, 'total_users', 'share_two']].to_string(index=False))
+
+        # Топ‑3 по доле повторных заказов
+        top_by_share = stats.sort_values(by='share_two', ascending=False).head(3)
+        print("\nТоп‑3 регионов по доле повторных заказов:")
+        print(top_by_share[[col, 'share_two', 'total_users']].to_string(index=False))
+
+        # Сравнение топ‑3 по пользователям: смотрим, сохраняется ли тренд «больше пользователей → выше доля»
+        regions = top_by_users[col].tolist()
+        shares = top_by_users['share_two'].tolist()
+
+        # Проверка монотонности: доля должна убывать или хотя бы не расти при переходе от 1→2→3
+        is_monotonic_decreasing = all(shares[i] >= shares[i + 1] for i in range(len(shares) - 1))
+
+        if is_monotonic_decreasing:
+            print("\nВывод: в топ‑3 регионах доля повторных заказов убывает по мере снижения числа пользователей. "
+                "Это поддерживает гипотезу: более активные регионы имеют более высокую долю повторных заказов.")
+        else:
+            # Найдём, где тренд ломается
+            break_idx = next(i for i in range(len(shares) - 1) if shares[i] < shares[i + 1])
+            print("Гипотеза 2 неверна: не во всех более активных регионах доля повторных выше.")
+
+        self.df = df
         return self
 
     # Корреляционный анализ
-    def correlation_analys( self,
+    def run_phik_correlation_analysis( self,
                             feature_cols: Optional[List[str]] = None,
                             interval_cols: Optional[List[str]] = None,
                             target_col: str = "count_orders_per_user") -> "DataProcessor":
@@ -398,10 +455,6 @@ class DataProcessor:
         plt.show()
         return self
 
-
-
-
-
     # Чтение из конфига
     @staticmethod
     def _get_db_config_from_env() -> Optional[Dict[str, Any]]:
@@ -473,3 +526,4 @@ class DataProcessor:
             f"@{self.db_config['host']}:{self.db_config['port']}/{self.db_config['db']}"
         )
         self.engine = create_engine(connection_string)
+
